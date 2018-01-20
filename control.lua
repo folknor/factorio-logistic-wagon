@@ -597,14 +597,14 @@ do
 	local ignore = {
 		[defines.train_state.on_the_path] = true,
 		[defines.train_state.path_lost] = true,
+		[defines.train_state.no_schedule] = true,
+		[defines.train_state.no_path] = true,
 		[defines.train_state.arrive_signal] = true,
+		[defines.train_state.wait_signal] = true,
 		[defines.train_state.arrive_station] = true,
+		--[defines.train_state.wait_station] = false,
 		[defines.train_state.manual_control_stop] = true,
 		[defines.train_state.manual_control] = true,
-		[defines.train_state.stop_for_auto_control] = true,
-		[defines.train_state.no_path] = true,
-		[defines.train_state.no_schedule] = true,
-		[defines.train_state.wait_signal] = true,
 	}
 
 	local function onStateChanged(event)

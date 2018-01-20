@@ -25,6 +25,7 @@ do
 			type = "item-with-entity-data",
 			name = "folk-logistic-wagon",
 			icon = "__folk-logistic-wagon__/item-icon.png",
+			icon_size = 32,
 			flags = {"goes-to-quickbar"},
 			subgroup = "transport",
 			order = "a[train-system]-g[cargo-wagon]",

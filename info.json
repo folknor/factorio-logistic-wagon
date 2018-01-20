@@ -6,6 +6,6 @@
 	"contact": "",
 	"homepage": "https://forums.factorio.com/viewtopic.php?f=94&t=45554",
 	"description": "Adds a new kind of train cargo wagon that connects to the logistic system in weird and mysterious ways.",
-	"factorio_version": "0.15",
+	"factorio_version": "0.16",
 	"dependencies": ["base"]
 }
