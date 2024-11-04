@@ -17,7 +17,7 @@ local stackSizeOverride = {
 -- LOG
 --
 
-local DEBUG = true
+local DEBUG = false
 local log
 do
 	if DEBUG then
@@ -28,7 +28,6 @@ do
 		log = function() end
 	end
 end
-
 
 -----------------------------------------------------------
 -- CACHE
@@ -136,6 +135,97 @@ local function isValidItemSignal(signal)
 end
 
 -----------------------------------------------------------
+-- MOVE HANDLER FUNCTIONS
+-- These handlers are invoked after we start moving from a spot where we previously handled a
+-- chest of some sort. They are only invoked for the chests we actually touched.
+--
+
+local function resetTempStackSizes(wagon)
+	temporaryStackSizes[wagon.unit_number] = nil
+end
+
+local function grabAll(wagon, chest)
+	local chestInv = chest.get_inventory(defines.inventory.chest)
+	if not chestInv or not chestInv.valid or chestInv.is_empty() then return end
+
+	local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
+	if not wagonInv or not wagonInv.valid then return end
+
+	moveAll(chestInv, wagonInv)
+end
+
+local function grabSignalsAndZero(wagon, chest)
+	local chestInv = chest.get_inventory(defines.inventory.chest)
+	if not chestInv or not chestInv.valid then return end
+	local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
+	if not wagonInv or not wagonInv.valid then return end
+
+	local useFilters = refreshFilters(wagonInv)
+
+	if useFilters then
+		-- Nil out all the requests
+		-- XXX check chestInv.filters
+		local llp = chest.get_requester_point()
+		if not llp then return false end
+
+		for _, section in next, llp.sections do
+			if section.valid and section.active and section.is_manual then
+				for i, signal in next, section.filters do
+					if isValidItemSignal(signal) then
+						if signal.min > 0 then
+							-- Set signal to zero
+							local item = signal.value.name
+							if filters[item] then
+								section.set_slot(i, {
+									value = item,
+									min = 0,
+									max = 0,
+								})
+							end
+						end
+					end
+				end
+			end
+		end
+
+		-- Transfer to wagon
+		for item, stacks in pairs(filters) do
+			local available = chestInv.get_item_count(item)
+			if available and available > 0 then
+				local missing = (getStackSize(wagon, item) * stacks) - wagonInv.get_item_count(item)
+				if missing > 0 then
+					if available >= missing then
+						itemStackCache[item] = missing
+					else
+						itemStackCache[item] = available
+					end
+					local inserted = wagonInv.insert(itemStackCache[item])
+					if type(inserted) == "number" and inserted > 0 then
+						itemStackCache[item] = inserted
+						chestInv.remove(itemStackCache[item])
+					end
+				end
+			end
+		end
+	end
+end
+
+local function grabAllApplyBar(wagon, chest)
+	local chestInv = chest.get_inventory(defines.inventory.chest)
+	if not chestInv or not chestInv.valid then return end
+	local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
+	if not wagonInv or not wagonInv.valid then return end
+
+	-- There was no zero-filter set, which means this is a requester chest
+	-- placed somewhere that we should bring with us
+	-- Re-apply a red bar on the whole chest
+	chestInv.set_bar(1)
+	-- Transfer everything
+	moveAll(chestInv, wagonInv)
+end
+
+
+-----------------------------------------------------------
 -- STOP HANDLER FUNCTIONS
 -- These handler functions are invoked when a wagon stops at a station, per chest type.
 --
@@ -178,12 +268,11 @@ do
 	handleStop["passive-provider-chest"] = function(wagon, chest)
 		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
 		if not wagonInv or not wagonInv.valid or wagonInv.is_empty() then return false end
+		local chestInv = chest.get_inventory(defines.inventory.chest)
+		if not chestInv or not chestInv.valid then return false end
 
 		-- We still need to process when we leave
-		if not wagonInv.is_filtered() then return true end
-
-		local chestInv = chest.get_inventory(defines.inventory.chest)
-		if not chestInv or not chestInv.valid then return true end
+		if not wagonInv.is_filtered() then return grabAll end
 
 		refreshFilters(wagonInv)
 
@@ -213,7 +302,7 @@ do
 			end
 		end
 		-- We always handle passive providers, because we grab their contents when we move again
-		return true
+		return grabAll
 	end
 
 	-- For active provider chests, we dump a stack of every filtered item type
@@ -241,8 +330,6 @@ do
 
 		refreshFilters(wagonInv)
 
-		log("handleStop", "Moving items for active provider")
-
 		local contents = wagonInv.get_contents()
 		for _, it in next, contents do
 			local item = it.name
@@ -251,8 +338,6 @@ do
 			if filters[item] then
 				local stack = getStackSize(wagon, item)
 				local alreadyIn = chestNut.get_item_count(item) or 0
-
-				log("handleStop", "Network is missing " .. item .. ": " .. alreadyIn .. " / " .. stack)
 
 				if alreadyIn < stack then
 					local toInsert = (stack - alreadyIn)
@@ -305,7 +390,7 @@ do
 		-- and let whatever is there fill it up for us
 		if chestInv.get_bar() == 1 then
 			chestInv.set_bar() -- Remove the red bars
-			return true -- Wait for it to be filled up
+			return grabAllApplyBar -- Wait for it to be filled up
 		end
 
 		if not wagonInv.is_filtered() then return false end
@@ -361,95 +446,8 @@ do
 				end
 			end
 		end
-		return requestedAnything
-	end
-end
-
------------------------------------------------------------
--- MOVE HANDLER FUNCTIONS
--- These handlers are invoked after we start moving from a spot where we previously handled a
--- chest of some sort. They are only invoked for the chests we actually touched.
---
-
-local handleMove = {}
-do
-	handleMove["constant-combinator"] = function(wagon)
-		temporaryStackSizes[wagon.unit_number] = nil
-	end
-
-	handleMove["passive-provider-chest"] = function(wagon, chest)
-		local chestInv = chest.get_inventory(defines.inventory.chest)
-		if not chestInv or not chestInv.valid or chestInv.is_empty() then return end
-
-		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
-		if not wagonInv or not wagonInv.valid then return end
-
-		moveAll(chestInv, wagonInv)
-	end
-
-	handleMove["requester-chest"] = function(wagon, chest)
-		local chestInv = chest.get_inventory(defines.inventory.chest)
-		if not chestInv or not chestInv.valid then return end
-		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
-		if not wagonInv or not wagonInv.valid then return end
-
-		local useFilters = refreshFilters(wagonInv)
-		local applyRedBar = true
-
-		if useFilters then
-			-- Nil out all the requests
-			-- XXX check chestInv.filters
-			local llp = chest.get_requester_point()
-			if not llp then return false end
-
-			for _, section in next, llp.sections do
-				if section.valid and section.active and section.is_manual then
-					for i, signal in next, section.filters do
-						if isValidItemSignal(signal) and signal.min > 0 then
-							-- Set signal to zero
-							local item = signal.value.name
-							if filters[item] then
-								applyRedBar = false
-								section.set_slot(i, {
-									value = item,
-									min = 0,
-									max = 0,
-								})
-							end
-						end
-					end
-				end
-			end
-
-			-- Transfer to wagon
-			for item, stacks in pairs(filters) do
-				local available = chestInv.get_item_count(item)
-				if available and available > 0 then
-					local missing = (getStackSize(wagon, item) * stacks) - wagonInv.get_item_count(item)
-					if missing > 0 then
-						if available >= missing then
-							itemStackCache[item] = missing
-						else
-							itemStackCache[item] = available
-						end
-						local inserted = wagonInv.insert(itemStackCache[item])
-						if type(inserted) == "number" and inserted > 0 then
-							itemStackCache[item] = inserted
-							chestInv.remove(itemStackCache[item])
-						end
-					end
-				end
-			end
-		end
-
-		if applyRedBar then
-			-- There was no zero-filter set, which means this is a requester chest
-			-- placed somewhere that we should bring with us
-			-- Re-apply a red bar on the whole chest
-			chestInv.set_bar(1)
-			-- Transfer everything
-			moveAll(chestInv, wagonInv)
-		end
+		if requestedAnything then return grabSignalsAndZero end
+		return false
 	end
 end
 
@@ -471,9 +469,9 @@ do
 
 	local function handleWagon(wagon, ...)
 		for i = 1, select("#", ...) do
-			local ent = select(i, ...)
-			if ent and ent.valid and handleMove[ent.name] then
-				handleMove[ent.name](wagon, ent)
+			local ent, fn = unpack((select(i, ...)))
+			if ent and ent.valid and type(fn) == "function" then
+				fn(wagon, ent)
 			end
 		end
 	end
@@ -571,10 +569,7 @@ do
 		end
 		-- XXX If area is not defined we really should display a warning
 		-- XXX that they should file a bug report on the addon page.
-		if not area then
-			log("handleWagon", "Unable to identify area where wagon should look for ents.")
-			return
-		end
+		if not area then return end
 
 		find.area = area
 		find.force = wagon.force
@@ -582,8 +577,6 @@ do
 		local res = wagon.surface.find_entities_filtered(find)
 
 		if type(res) ~= "table" or #res == 0 then return end
-
-		log("handleWagon", "Found ents: " .. #res)
 
 		-- See if we find a CC
 		local cc = nil
@@ -595,8 +588,6 @@ do
 				-- one we find.
 			end
 		end
-
-		log("handleWagon", "CC: " .. type(cc))
 
 		if type(cc) == "userdata" and cc.valid and handleStop[cc.name] then
 			handleStop[cc.name](wagon, cc)
@@ -610,15 +601,11 @@ do
 				local process = handleStop[entity.name](wagon, entity)
 				if process then
 					if not ticktable then
-						ticktable = { wagon, entity, }
+						ticktable = { wagon, { entity, process, }, }
 					else
-						ticktable[#ticktable + 1] = entity
+						ticktable[#ticktable + 1] = { entity, process, }
 					end
-				else
-					log("handleWagon", "dont process again: " .. entity.name)
 				end
-			else
-				log("handleWagon", "no handleStop for " .. entity.name)
 			end
 		end
 
@@ -627,8 +614,7 @@ do
 			-- ZZZ so that we handleStop[] it last, clearing the stack size data after
 			-- ZZZ we are done processing the chests - and not randomly inbetween chests.
 			if cc then
-				log("handleWagon", "Appending CC.")
-				ticktable[#ticktable + 1] = cc
+				ticktable[#ticktable + 1] = { cc, resetTempStackSizes, }
 			end
 
 			if not storage.wagons then storage.wagons = {} end
@@ -637,8 +623,6 @@ do
 				script.on_event(defines.events.on_tick, tick)
 			end
 			_wagons[#_wagons + 1] = ticktable
-		else
-			log("handleWagon", "ticktable empty.")
 		end
 	end
 
