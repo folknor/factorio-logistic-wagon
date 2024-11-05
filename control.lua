@@ -14,22 +14,6 @@ local stackSizeOverride = {
 }
 
 -----------------------------------------------------------
--- LOG
---
-
-local DEBUG = false
-local log
-do
-	if DEBUG then
-		log = function(cat, str)
-			print(tostring(cat), tostring(str))
-		end
-	else
-		log = function() end
-	end
-end
-
------------------------------------------------------------
 -- CACHE
 --
 
@@ -74,7 +58,6 @@ do
 		return stackSizeCache[item]
 	end
 end
-local function wipe(tbl) for k in pairs(tbl) do tbl[k] = nil end end
 
 -----------------------------------------------------------
 -- LOCAL VARIABLES
@@ -107,26 +90,24 @@ local function moveAll(from, to, ignore)
 	end
 end
 
-local filters = {}
-local function refreshFilters(inv, ignore)
+local function getFilters(inv)
 	if not inv.is_filtered() then return false end
-	-- we can read the filters in train_state_changed ZZZ
 	local any = false
+	local ret = {}
 
-	wipe(filters)
 	for i = 1, #inv do
 		local filter = inv.get_filter(i)
 		if filter and type(filter) == "table" then
 			filter = filter.name
 		end
 
-		if filter and (not ignore or not ignore[filter]) then
-			filters[filter] = (filters[filter] and filters[filter] + 1) or 1
+		if filter then
+			ret[filter] = (ret[filter] and ret[filter] + 1) or 1
 			any = true
 		end
 	end
 
-	return any
+	return any, ret
 end
 
 local function isValidItemSignal(signal)
@@ -160,11 +141,9 @@ local function grabSignalsAndZero(wagon, chest)
 	local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
 	if not wagonInv or not wagonInv.valid then return end
 
-	local useFilters = refreshFilters(wagonInv)
+	local useFilters, filters = getFilters(wagonInv)
 
-	if useFilters then
-		-- Nil out all the requests
-		-- XXX check chestInv.filters
+	if useFilters and filters then
 		local llp = chest.get_requester_point()
 		if not llp then return false end
 
@@ -224,57 +203,53 @@ local function grabAllApplyBar(wagon, chest)
 	moveAll(chestInv, wagonInv)
 end
 
-
 -----------------------------------------------------------
 -- STOP HANDLER FUNCTIONS
 -- These handler functions are invoked when a wagon stops at a station, per chest type.
 --
 
-local handleStop = {}
+local readFromConstantCombinator
 do
-	do
-		local function readSignals(un, parameters)
-			local any = false
-			for _, signal in next, parameters do
-				if isValidItemSignal(signal) then
-					if not temporaryStackSizes[un] then temporaryStackSizes[un] = {} end
-					temporaryStackSizes[un][signal.value.name] = signal.min
-					any = true
-				end
+	local function readSignals(un, parameters)
+		local any = false
+		for _, signal in next, parameters do
+			if isValidItemSignal(signal) then
+				if not temporaryStackSizes[un] then temporaryStackSizes[un] = {} end
+				temporaryStackSizes[un][signal.value.name] = signal.min
+				any = true
 			end
-			return any
 		end
-
-		handleStop["constant-combinator"] = function(wagon, cc)
-			if not cc or not cc.valid then return false end
-			local behave = cc.get_control_behavior()
-			if not behave.enabled then return false end
-
-			local anyParameters = false
-			local un = wagon.unit_number
-
-			for _, section in next, behave.sections do
-				if section.valid and section.active and section.is_manual then
-					anyParameters = readSignals(un, section.filters)
-				end
-			end
-
-			return anyParameters
-		end
+		return any
 	end
 
+	readFromConstantCombinator = function(wagon, cc)
+		if not cc or not cc.valid then return false end
+		local behave = cc.get_control_behavior()
+		if not behave.enabled then return false end
+
+		local anyParameters = false
+		local un = wagon.unit_number
+
+		for _, section in next, behave.sections do
+			if section.valid and section.active and section.is_manual then
+				if readSignals(un, section.filters) then
+					anyParameters = true
+				end
+			end
+		end
+
+		return anyParameters
+	end
+end
+
+local handleStop = {}
+do
 	-- For passive provider chests, we insert a stack of every item type we carry
 	-- that is filtered, and grab the filtered items from the chest again when we leave
-	handleStop["passive-provider-chest"] = function(wagon, chest)
-		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
-		if not wagonInv or not wagonInv.valid or wagonInv.is_empty() then return false end
-		local chestInv = chest.get_inventory(defines.inventory.chest)
-		if not chestInv or not chestInv.valid then return false end
-
+	handleStop["passive-provider-chest"] = function(wagon, chest, wagonInv, chestInv, useFilters, filters)
 		-- We still need to process when we leave
+		if wagonInv.is_empty() then return grabAll end
 		if not wagonInv.is_filtered() then return grabAll end
-
-		refreshFilters(wagonInv)
 
 		local contents = wagonInv.get_contents()
 		for _, it in next, contents do
@@ -306,13 +281,9 @@ do
 	end
 
 	-- For active provider chests, we dump a stack of every filtered item type
-	handleStop["active-provider-chest"] = function(wagon, chest)
-		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
+	handleStop["active-provider-chest"] = function(wagon, chest, wagonInv, chestInv, useFilters, filters)
 		-- If the wagon inventory is empty, we dont do anything
-		if not wagonInv or not wagonInv.valid or wagonInv.is_empty() then return false end
-
-		local chestInv = chest.get_inventory(defines.inventory.chest)
-		if not chestInv or not chestInv.valid then return false end
+		if wagonInv.is_empty() then return false end
 
 		-- If the active provider chest has a full red bar, we dump everything
 		-- that is not filtered into it and reapply the red bar
@@ -327,8 +298,6 @@ do
 
 		local chestNut = chest.logistic_network
 		if not chestNut or not chestNut.valid then return false end
-
-		refreshFilters(wagonInv)
 
 		local contents = wagonInv.get_contents()
 		for _, it in next, contents do
@@ -362,15 +331,9 @@ do
 	-- For storage chests, we just dump everything and we dont process
 	-- the chest when we start moving away from this station.
 	-- Dump-and-forget
-	handleStop["storage-chest"] = function(wagon, chest)
-		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
+	handleStop["storage-chest"] = function(wagon, chest, wagonInv, chestInv, useFilters, filters)
 		-- If the wagon inventory is empty, we dont do anything
-		if not wagonInv or not wagonInv.valid or wagonInv.is_empty() then return false end
-
-		local chestInv = chest.get_inventory(defines.inventory.chest)
-		if not chestInv or not chestInv.valid then return false end
-
-		local useFilters = refreshFilters(wagonInv)
+		if wagonInv.is_empty() then return false end
 
 		if useFilters then
 			moveAll(wagonInv, chestInv, filters)
@@ -380,21 +343,16 @@ do
 		return false
 	end
 
-	handleStop["requester-chest"] = function(wagon, chest)
-		local chestInv = chest.get_inventory(defines.inventory.chest)
-		if not chestInv or not chestInv.valid then return false end
-		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
-		if not wagonInv or not wagonInv.valid then return false end
-
+	handleStop["requester-chest"] = function(wagon, chest, wagonInv, chestInv, useFilters, filters)
 		-- If the requester chest has a red bar filling the entire chest, we remove the restrictions
 		-- and let whatever is there fill it up for us
 		if chestInv.get_bar() == 1 then
-			chestInv.set_bar() -- Remove the red bars
-			return grabAllApplyBar -- Wait for it to be filled up
+			chestInv.set_bar()
+			-- Wait for it to be filled up and then grab everything when we move
+			return grabAllApplyBar
 		end
 
 		if not wagonInv.is_filtered() then return false end
-		refreshFilters(wagonInv)
 
 		local llp = chest.get_requester_point()
 		if not llp then return false end
@@ -557,7 +515,7 @@ end
 do
 	local find = {
 		--type = "logistic-container",
-		name = { "constant-combinator", "passive-provider-chest", "active-provider-chest", "buffer-chest", "storage-chest", "requester-chest", },
+		name = { "constant-combinator", "passive-provider-chest", "active-provider-chest", "storage-chest", "requester-chest", },
 	}
 
 	local function handleWagon(wagon)
@@ -589,21 +547,29 @@ do
 			end
 		end
 
-		if type(cc) == "userdata" and cc.valid and handleStop[cc.name] then
-			handleStop[cc.name](wagon, cc)
+		if cc and cc.valid then
+			readFromConstantCombinator(wagon, cc)
 		else
 			cc = nil
 		end
 
 		local ticktable = nil
-		for _, entity in next, res do
-			if handleStop[entity.name] then
-				local process = handleStop[entity.name](wagon, entity)
-				if process then
-					if not ticktable then
-						ticktable = { wagon, { entity, process, }, }
-					else
-						ticktable[#ticktable + 1] = { entity, process, }
+
+		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
+		if wagonInv and wagonInv.valid then
+			local useFilters, filters = getFilters(wagonInv)
+			for _, chest in next, res do
+				if handleStop[chest.name] then
+					local chestInv = chest.get_inventory(defines.inventory.chest)
+					if chestInv and chestInv.valid then
+						local process = handleStop[chest.name](wagon, chest, wagonInv, chestInv, useFilters, filters)
+						if process then
+							if not ticktable then
+								ticktable = { wagon, { chest, process, }, }
+							else
+								ticktable[#ticktable + 1] = { chest, process, }
+							end
+						end
 					end
 				end
 			end

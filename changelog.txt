@@ -1,0 +1,93 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.2.8
+Date: 2024-11-05
+  Changes:
+    - Code optimizations and refactoring to consolidate code more.
+    - Added changelog.txt
+    - Remove logging
+    - Fix constant combinators with an empty logistic request group
+---------------------------------------------------------------------------------------------------
+Version: 0.2.7
+Date: 2024-11-04
+  Changes:
+    - Fix requester chests red bar functionality.
+---------------------------------------------------------------------------------------------------
+Version: 0.2.6
+Date: 2024-11-04
+  Changes:
+    - Factorio 2.0 bump.
+    - Some functionality changed because the game changed.
+    - Read the description on the mod portal again please.
+    - Screenshots on mod portal have not been updated, but should be accurate enough.
+---------------------------------------------------------------------------------------------------
+Version: 0.2.5
+Date: ???
+  Changes:
+    - 0.16 bump.
+---------------------------------------------------------------------------------------------------
+Version: 0.2.4
+Date: ???
+  Changes:
+    - Fixed events for 0.15.10.
+---------------------------------------------------------------------------------------------------
+Version: 0.2.3
+Date: ???
+  Changes:
+    - Update for 0.15, and fix an old bug where passive provider chests got free items sometimes.
+---------------------------------------------------------------------------------------------------
+Version: 0.2.2
+Date: ???
+  Changes:
+    - Dont ignore passive provider chests even when wagon inventory is empty
+---------------------------------------------------------------------------------------------------
+Version: 0.2.1
+Date: ???
+  Changes:
+    - No longer looks for chests when the train stops at a signal; only at stations.
+    - You can now put down a constant combinator at any of the 4 spots to override the stack sizes completely per-wagon, per-station.
+---------------------------------------------------------------------------------------------------
+Version: 0.1.9
+Date: ???
+  Changes:
+    - Passive Provider chests are now actually handled like described, previously they were not grabbed when the train started moving unless it had inserted anything into them when it stopped.
+---------------------------------------------------------------------------------------------------
+Version: 0.1.8
+Date: ???
+  Changes:
+    - Forgot to remove a debug message in 0.1.7.
+    - Changed requirements for the tech and recipe slightly.
+---------------------------------------------------------------------------------------------------
+Version: 0.1.7
+Date: ???
+  Changes:
+    - Prevent on_tick processing for requester chests we did not touch
+---------------------------------------------------------------------------------------------------
+Version: 0.1.6
+Date: ???
+  Changes:
+    - Active Provider (purple) chests with a full red bar are now treated as storage (yellow) chests; the wagon will dump all its non-filtered items into it and reapply the red bar
+---------------------------------------------------------------------------------------------------
+Version: 0.1.5
+Date: ???
+  Changes:
+    - Use the config-adjusted stacksizes whenever anything is filtered. Also had to reset the stored data, so when you load a savegame the wagons wont react to the chests until the next visit to the station.
+---------------------------------------------------------------------------------------------------
+Version: 0.1.4
+Date: ???
+  Changes:
+    - Fixed processing of wagons between save/load cycles
+---------------------------------------------------------------------------------------------------
+Version: 0.1.3
+Date: ???
+  Changes:
+    - Only non-filtered items are dumped into storage (yellow) chests
+---------------------------------------------------------------------------------------------------
+Version: 0.1.2
+Date: ???
+  Changes:
+    - Fixed nil reference bug
+---------------------------------------------------------------------------------------------------
+Version: 0.1.1
+Date: ???
+  Changes:
+    - Initial release
