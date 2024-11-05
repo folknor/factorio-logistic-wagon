@@ -6,6 +6,7 @@ Date: 2024-11-05
     - Added changelog.txt
     - Remove logging
     - Fix constant combinators with an empty logistic request group
+    - Fix save bug
 ---------------------------------------------------------------------------------------------------
 Version: 0.2.7
 Date: 2024-11-04
