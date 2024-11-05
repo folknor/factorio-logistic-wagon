@@ -121,86 +121,89 @@ end
 -- chest of some sort. They are only invoked for the chests we actually touched.
 --
 
-local function resetTempStackSizes(wagon)
-	temporaryStackSizes[wagon.unit_number] = nil
-end
+local moveHandlers = {}
+do
+	function moveHandlers.resetTempStackSizes(wagon)
+		temporaryStackSizes[wagon.unit_number] = nil
+	end
 
-local function grabAll(wagon, chest)
-	local chestInv = chest.get_inventory(defines.inventory.chest)
-	if not chestInv or not chestInv.valid or chestInv.is_empty() then return end
+	function moveHandlers.grabAll(wagon, chest)
+		local chestInv = chest.get_inventory(defines.inventory.chest)
+		if not chestInv or not chestInv.valid or chestInv.is_empty() then return end
 
-	local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
-	if not wagonInv or not wagonInv.valid then return end
+		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
+		if not wagonInv or not wagonInv.valid then return end
 
-	moveAll(chestInv, wagonInv)
-end
+		moveAll(chestInv, wagonInv)
+	end
 
-local function grabSignalsAndZero(wagon, chest)
-	local chestInv = chest.get_inventory(defines.inventory.chest)
-	if not chestInv or not chestInv.valid then return end
-	local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
-	if not wagonInv or not wagonInv.valid then return end
+	function moveHandlers.grabSignalsAndZero(wagon, chest)
+		local chestInv = chest.get_inventory(defines.inventory.chest)
+		if not chestInv or not chestInv.valid then return end
+		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
+		if not wagonInv or not wagonInv.valid then return end
 
-	local useFilters, filters = getFilters(wagonInv)
+		local useFilters, filters = getFilters(wagonInv)
 
-	if useFilters and filters then
-		local llp = chest.get_requester_point()
-		if not llp then return false end
+		if useFilters and filters then
+			local llp = chest.get_requester_point()
+			if not llp then return false end
 
-		for _, section in next, llp.sections do
-			if section.valid and section.active and section.is_manual then
-				for i, signal in next, section.filters do
-					if isValidItemSignal(signal) then
-						if signal.min > 0 then
-							-- Set signal to zero
-							local item = signal.value.name
-							if filters[item] then
-								section.set_slot(i, {
-									value = item,
-									min = 0,
-									max = 0,
-								})
+			for _, section in next, llp.sections do
+				if section.valid and section.active and section.is_manual then
+					for i, signal in next, section.filters do
+						if isValidItemSignal(signal) then
+							if signal.min > 0 then
+								-- Set signal to zero
+								local item = signal.value.name
+								if filters[item] then
+									section.set_slot(i, {
+										value = item,
+										min = 0,
+										max = 0,
+									})
+								end
 							end
 						end
 					end
 				end
 			end
-		end
 
-		-- Transfer to wagon
-		for item, stacks in pairs(filters) do
-			local available = chestInv.get_item_count(item)
-			if available and available > 0 then
-				local missing = (getStackSize(wagon, item) * stacks) - wagonInv.get_item_count(item)
-				if missing > 0 then
-					if available >= missing then
-						itemStackCache[item] = missing
-					else
-						itemStackCache[item] = available
-					end
-					local inserted = wagonInv.insert(itemStackCache[item])
-					if type(inserted) == "number" and inserted > 0 then
-						itemStackCache[item] = inserted
-						chestInv.remove(itemStackCache[item])
+			-- Transfer to wagon
+			for item, stacks in pairs(filters) do
+				local available = chestInv.get_item_count(item)
+				if available and available > 0 then
+					local missing = (getStackSize(wagon, item) * stacks) - wagonInv.get_item_count(item)
+					if missing > 0 then
+						if available >= missing then
+							itemStackCache[item] = missing
+						else
+							itemStackCache[item] = available
+						end
+						local inserted = wagonInv.insert(itemStackCache[item])
+						if type(inserted) == "number" and inserted > 0 then
+							itemStackCache[item] = inserted
+							chestInv.remove(itemStackCache[item])
+						end
 					end
 				end
 			end
 		end
 	end
-end
 
-local function grabAllApplyBar(wagon, chest)
-	local chestInv = chest.get_inventory(defines.inventory.chest)
-	if not chestInv or not chestInv.valid then return end
-	local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
-	if not wagonInv or not wagonInv.valid then return end
+	function moveHandlers.grabAllApplyBar(wagon, chest)
+		local chestInv = chest.get_inventory(defines.inventory.chest)
+		if not chestInv or not chestInv.valid then return end
+		local wagonInv = wagon.get_inventory(defines.inventory.cargo_wagon)
+		if not wagonInv or not wagonInv.valid then return end
 
-	-- There was no zero-filter set, which means this is a requester chest
-	-- placed somewhere that we should bring with us
-	-- Re-apply a red bar on the whole chest
-	chestInv.set_bar(1)
-	-- Transfer everything
-	moveAll(chestInv, wagonInv)
+		-- There was no zero-filter set, which means this is a requester chest
+		-- placed somewhere that we should bring with us
+		-- Re-apply a red bar on the whole chest
+		chestInv.set_bar(1)
+		-- Transfer everything
+		moveAll(chestInv, wagonInv)
+	end
 end
 
 -----------------------------------------------------------
@@ -248,8 +251,8 @@ do
 	-- that is filtered, and grab the filtered items from the chest again when we leave
 	handleStop["passive-provider-chest"] = function(wagon, chest, wagonInv, chestInv, useFilters, filters)
 		-- We still need to process when we leave
-		if wagonInv.is_empty() then return grabAll end
-		if not wagonInv.is_filtered() then return grabAll end
+		if wagonInv.is_empty() then return "grabAll" end
+		if not wagonInv.is_filtered() then return "grabAll" end
 
 		local contents = wagonInv.get_contents()
 		for _, it in next, contents do
@@ -277,7 +280,7 @@ do
 			end
 		end
 		-- We always handle passive providers, because we grab their contents when we move again
-		return grabAll
+		return "grabAll"
 	end
 
 	-- For active provider chests, we dump a stack of every filtered item type
@@ -349,7 +352,7 @@ do
 		if chestInv.get_bar() == 1 then
 			chestInv.set_bar()
 			-- Wait for it to be filled up and then grab everything when we move
-			return grabAllApplyBar
+			return "grabAllApplyBar"
 		end
 
 		if not wagonInv.is_filtered() then return false end
@@ -404,7 +407,7 @@ do
 				end
 			end
 		end
-		if requestedAnything then return grabSignalsAndZero end
+		if requestedAnything then return "grabSignalsAndZero" end
 		return false
 	end
 end
@@ -428,8 +431,8 @@ do
 	local function handleWagon(wagon, ...)
 		for i = 1, select("#", ...) do
 			local ent, fn = unpack((select(i, ...)))
-			if ent and ent.valid and type(fn) == "function" then
-				fn(wagon, ent)
+			if ent and ent.valid and type(fn) == "string" then
+				moveHandlers[fn](wagon, ent)
 			end
 		end
 	end
@@ -580,7 +583,7 @@ do
 			-- ZZZ so that we handleStop[] it last, clearing the stack size data after
 			-- ZZZ we are done processing the chests - and not randomly inbetween chests.
 			if cc then
-				ticktable[#ticktable + 1] = { cc, resetTempStackSizes, }
+				ticktable[#ticktable + 1] = { cc, "resetTempStackSizes", }
 			end
 
 			if not storage.wagons then storage.wagons = {} end
