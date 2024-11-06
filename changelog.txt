@@ -1,4 +1,9 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.2.9
+Date: 2024-11-06
+  Changes:
+    - Fix stack sizes were not reset after leaving a stop containing only a CC + yellow or purple chests
+---------------------------------------------------------------------------------------------------
 Version: 0.2.8
 Date: 2024-11-05
   Changes:

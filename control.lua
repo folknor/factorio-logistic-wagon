@@ -578,12 +578,16 @@ do
 			end
 		end
 
-		if ticktable then
+		if ticktable or cc then
 			-- ZZZ We make sure the combinator is the last entry in the ticktable data,
 			-- ZZZ so that we handleStop[] it last, clearing the stack size data after
 			-- ZZZ we are done processing the chests - and not randomly inbetween chests.
 			if cc then
-				ticktable[#ticktable + 1] = { cc, "resetTempStackSizes", }
+				if not ticktable then
+					ticktable = { wagon, { cc, "resetTempStackSizes", }, }
+				else
+					ticktable[#ticktable + 1] = { cc, "resetTempStackSizes", }
+				end
 			end
 
 			if not storage.wagons then storage.wagons = {} end
