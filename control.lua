@@ -292,7 +292,7 @@ do
 		-- that is not filtered into it and reapply the red bar
 		if chestInv.get_bar() == 1 then
 			chestInv.set_bar() -- Remove the red bars
-			handleStop["storage-chest"](wagon, chest)
+			handleStop["storage-chest"](wagon, chest, wagonInv, chestInv, useFilters, filters)
 			chestInv.set_bar(1)
 			return false
 		end
